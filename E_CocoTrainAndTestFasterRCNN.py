@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 
+
 ### Training config
 batchSize = 1
 weightDecay = 5e-4
@@ -25,12 +26,13 @@ scheduleMinLR = 5e-6
 scheduleMaxIniIter = 2000
 scheduleDecayRate = 0.993
 scheduleFactor = 1.2
-displayTimes = 25
+displayTimes = 32
+stepTimes = 32
 ifLoadWeightForTraining = True
-loadWeightFile = './Model_COCO0_10000.pth'
+loadWeightFile = './Model_COCO0_5000.pth'
 trainingWeightSaveStep = 5000
 ### Test config
-testWeightLoad = './Model_COCO0_10000.pth'
+testWeightLoad = './Model_COCO0_5000.pth'
 scoreThreshold = 0.6
 
 transformC = T.Compose([T.ToTensor(),
@@ -38,7 +40,8 @@ transformC = T.Compose([T.ToTensor(),
 # dataSet = PennFudanDataset('./PennFudanPed/',transformC,device)
 # 82081
 dataSet = COCO_Train_Data_Set("./cocoTrain.h5py",torchvision.transforms.ToTensor(),
-                                      "./imageID2infoTrain.txt","./imageID2fileNameTrain.txt")
+                                      "./coco_imageID2infoTrain.txt","./coco_imageID2fileNameTrain.txt")
+
 
 # load a pre-trained model for classification and return
 # only the features
@@ -115,8 +118,12 @@ if ifLoadWeightForTraining :
 
 
 def dataGenerator(oneDataSet):
+    indicesD = len(oneDataSet)
+    indicesN = np.array(list(range(indicesD)))
+    np.random.shuffle(indicesN)
     while True:
-        for _ ,(imageG, targetG) in enumerate(oneDataSet):
+        for idx in indicesN:
+            imageG, targetG = oneDataSet.__getitem__(idx)
             yield imageG, targetG
 
 if trainOrTest.lower() == "train":
@@ -142,10 +149,9 @@ if trainOrTest.lower() == "train":
             # 'loss_box_reg': tensor(0.0002, grad_fn=<DivBackward0>),
             # 'loss_objectness': tensor(0.7188, grad_fn=<BinaryCrossEntropyWithLogitsBackward>),
             # 'loss_rpn_box_reg': tensor(4.0351, grad_fn=<DivBackward0>)}
-            optimizer.zero_grad()
             losses = model(images,targets)
             #print(losses)
-            addedLosses = losses["loss_classifier"] + losses["loss_box_reg"] + losses["loss_objectness"] + losses["loss_rpn_box_reg"]
+            addedLosses = (losses["loss_classifier"] + losses["loss_box_reg"] + losses["loss_objectness"] + losses["loss_rpn_box_reg"]) / stepTimes
             if trainingTimes % displayTimes == 0:
                 print("#######")
                 print("Epoch : ",e)
@@ -156,12 +162,15 @@ if trainOrTest.lower() == "train":
                 print("loss_objectness : ",losses["loss_objectness"])
                 print("loss_rpn_box_reg : ",losses["loss_rpn_box_reg"])
             addedLosses.backward()
-            optimizer.step()
-            learning_rate = scheduler.calculateLearningRate()
-            state_dic = optimizer.state_dict()
-            state_dic["param_groups"][0]["lr"] = float(learning_rate)
-            optimizer.load_state_dict(state_dic)
-            scheduler.step()
+            if trainingTimes % stepTimes == 0:
+                #print("STEP")
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                learning_rate = scheduler.calculateLearningRate()
+                state_dic = optimizer.state_dict()
+                state_dic["param_groups"][0]["lr"] = float(learning_rate)
+                optimizer.load_state_dict(state_dic)
             trainingTimes += 1
             if trainingTimes % trainingWeightSaveStep == 0 :
                 torch.save(model.state_dict(), "./Model_COCO" + str(e) + "_" + str(trainingTimes) + ".pth")

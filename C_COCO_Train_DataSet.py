@@ -45,14 +45,17 @@ class COCO_Train_Data_Set(dataset.Dataset):
         fileName = self.fileNames[idx]
         img = np.array(self.dataset[fileName])
         inforMap = self.fileName2Info[fileName]
-        bboxes = torch.from_numpy(np.array(inforMap["bbox"])).to(self.device)
-        labels = torch.as_tensor(inforMap["category_id"],dtype=torch.int64).to(self.device)
+        bboxes = torch.from_numpy(np.array(inforMap["bbox"])).to(self.device,non_blocking=True)
+        labels = torch.as_tensor(inforMap["category_id"],dtype=torch.int64).to(self.device,non_blocking=True)
         # suppose all instances are not crowd
-        iscrowd = torch.as_tensor(inforMap["iscorwd"], dtype=torch.int64).to(self.device)
+        iscrowd = torch.as_tensor(inforMap["iscorwd"], dtype=torch.int64).to(self.device,non_blocking=True)
         target = {"boxes": bboxes, "labels": labels,"iscrowd": iscrowd}
         if self.transforms is not None:
             img = self.transforms(img)
-        return img.to(self.device), target
+        return img.to(self.device,non_blocking=True), target
+
+    def __len__(self):
+        return len(self.fileNames)
 
 
 if __name__ == "__main__":
