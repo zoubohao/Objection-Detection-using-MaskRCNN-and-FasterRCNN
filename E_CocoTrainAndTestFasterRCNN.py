@@ -16,6 +16,7 @@ import numpy as np
 
 ### Training config
 batchSize = 1
+shuffle = True
 weightDecay = 5e-4
 trainOrTest = "Train"
 num_classes = 91 # include the background
@@ -23,17 +24,17 @@ trainingEpoch = 5
 trainingTimesInOneEpoch = 82081
 lr = 1e-4
 scheduleMinLR = 5e-6
-scheduleMaxIniIter = 2000
-scheduleDecayRate = 0.993
-scheduleFactor = 1.2
-displayTimes = 32
-stepTimes = 32
-ifLoadWeightForTraining = True
-loadWeightFile = './Model_COCO0_5000.pth'
+scheduleMaxIniIter = 1250
+scheduleDecayRate = 0.98
+scheduleFactor = 1.25
+displayTimes = 16
+stepTimes = 16
+ifLoadWeightForTraining = False
+loadWeightFile = './Model_COCO0_10000.pth'
 trainingWeightSaveStep = 5000
 ### Test config
-testWeightLoad = './Model_COCO0_5000.pth'
-scoreThreshold = 0.6
+testWeightLoad = './Model_COCO0_25000.pth'
+scoreThreshold = 0.001
 
 transformC = T.Compose([T.ToTensor(),
                         T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
@@ -51,13 +52,13 @@ dataSet = COCO_Train_Data_Set("./cocoTrain.h5py",torchvision.transforms.ToTensor
 # It should contain a out_channels attribute, which indicates the number of output
 # channels that each feature map has (and it should be the same for all feature maps).
 # The backbone should return a single Tensor or and OrderedDict[Tensor].
-# backbone = torchvision.models.mobilenet_v2(pretrained=True).features
+#backbone = torchvision.models.mobilenet_v2(pretrained=True).features
 backbone = ResNet(layers=[8, 12, 24, 6])
 
 # FasterRCNN needs to know the number of
 # output channels in a backbone. For mobilenet_v2, it's 1280
 # so we need to add it here
-# backbone.out_channels = 1280
+#backbone.out_channels = 1280
 backbone.out_channels = 512
 
 # let's make the RPN generate 5 x 3 anchors per spatial
@@ -85,7 +86,7 @@ anchor_generator = AnchorGenerator(sizes=(32, 64, 128, 256, 512),
 
 ### if we will use FPN (Feature pyramid network), we should set featmap_name as ['0','1','2','3','4']
 ### however, we do not use FPN, so only set ['0'] is ok.
-roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0','1','2'],
+roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0',"1","2"],
                                                 output_size=[7,7],
                                                 sampling_ratio=2)
 
@@ -117,19 +118,20 @@ if ifLoadWeightForTraining :
     model.load_state_dict(torch.load(loadWeightFile))
 
 
-def dataGenerator(oneDataSet):
+def dataGenerator(oneDataSet,ifShuffle = shuffle):
     indicesD = len(oneDataSet)
     indicesN = np.array(list(range(indicesD)))
-    np.random.shuffle(indicesN)
+    if ifShuffle:
+        np.random.shuffle(indicesN)
     while True:
         for idx in indicesN:
-            imageG, targetG = oneDataSet.__getitem__(idx)
-            yield imageG, targetG
+            imageG, targetG , fileNameG = oneDataSet.__getitem__(idx)
+            yield imageG, targetG , fileNameG
 
 if trainOrTest.lower() == "train":
     import torch.optim.adam as adam
     from LearningRateSch import CosineDecaySchedule
-    trainingDataGenerator = dataGenerator(dataSet)
+    trainingDataGenerator = dataGenerator(dataSet,False)
     optimizer = adam.Adam(model.parameters(),lr=lr, weight_decay=weightDecay,amsgrad=True)
     scheduler = CosineDecaySchedule(lrMin=scheduleMinLR,lrMax=lr,tMaxIni=scheduleMaxIniIter,factor=scheduleFactor,lrDecayRate=scheduleDecayRate)
     # For Training
@@ -141,10 +143,14 @@ if trainOrTest.lower() == "train":
         for t in range(trainingTimesInOneEpoch):
             images = []
             targets = []
+            #fileNames = []
             for b in range(batchSize):
-                img , target = trainingDataGenerator.__next__()
+                img , target , _ = trainingDataGenerator.__next__()
+                #img, target, fileName = dataSet.__getitem__(11195)
                 images.append(img)
                 targets.append(target)
+                #fileNames.append(fileName)
+            #print(fileNames)
             # {'loss_classifier': tensor(0.6214, grad_fn=<NllLossBackward>),
             # 'loss_box_reg': tensor(0.0002, grad_fn=<DivBackward0>),
             # 'loss_objectness': tensor(0.7188, grad_fn=<BinaryCrossEntropyWithLogitsBackward>),
@@ -164,6 +170,7 @@ if trainOrTest.lower() == "train":
             addedLosses.backward()
             if trainingTimes % stepTimes == 0:
                 #print("STEP")
+                #torch.nn.utils.clip_grad_value_(model.parameters(),clip_value=25)
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
@@ -178,8 +185,8 @@ else:
     # For inference
     model.load_state_dict(torch.load(testWeightLoad))
     model.eval()
-    testImagePath = "./test7.png"
-    maskSavePath = "./test7Masks.png"
+    testImagePath = "./test0.jpg"
+    maskSavePath = "./test0Masks.png"
     testImg = Image.open(testImagePath).convert("RGB")
     testImgTensor = T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(T.ToTensor()(testImg)).to(device)
     ### This prediction is a dict. It contains boxes, labels, scores, masks
@@ -191,6 +198,7 @@ else:
     indices = torchvision.ops.nms(bboxes,scores,iou_threshold=0.2)
     finalIndices = []
     print(scores)
+    print(labels)
     for index in indices:
         if scores[index] >= scoreThreshold:
             finalIndices.append(index.reshape([1]))

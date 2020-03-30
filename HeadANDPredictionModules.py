@@ -22,13 +22,10 @@ class RPNHead(nn.Module):
         self.conv = nn.Conv2d(
             in_channels, in_channels, kernel_size=3, stride=1, padding=1
         )
-        self.gn0 = nn.GroupNorm(4,in_channels)
-        self.gn1 = nn.GroupNorm(4,in_channels)
         self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
         self.bbox_pred = nn.Conv2d(
             in_channels, num_anchors * 4, kernel_size=1, stride=1
         )
-        self.alpha = nn.Parameter(torch.zeros(size=[1]),requires_grad=True)
 
     def forward(self, x):
         """
@@ -38,7 +35,7 @@ class RPNHead(nn.Module):
         logits = []
         bbox_reg = []
         for feature in x:
-            t = torch.mul(F.relu(self.gn0(self.conv(feature))),self.alpha) + F.relu(self.gn1(feature))
+            t = F.relu(self.conv(feature))
             logits.append(self.cls_logits(t))
             bbox_reg.append(self.bbox_pred(t))
         return logits, bbox_reg
@@ -62,18 +59,14 @@ class BoxHead(nn.Module):
     def __init__(self, in_channels, representation_size):
         super(BoxHead, self).__init__()
         self.conv = misc_nn_ops.Conv2d(in_channels,in_channels,kernel_size=3,stride=1,padding=1)
-        self.bn = misc_nn_ops.BatchNorm2d(in_channels)
-        self.bn1 = misc_nn_ops.BatchNorm2d(in_channels)
         self.pooling = nn.AdaptiveAvgPool2d(output_size=(1,1))
         self.fc6 = nn.Linear(in_channels, representation_size)
-        self.alpha = nn.Parameter(torch.zeros(size=[1]), requires_grad=True)
 
     def forward(self, x):
         #x = x.flatten(start_dim=1)
         conv = self.conv(x)
-        bn = self.bn(conv)
-        relu = F.relu(bn)
-        act = self.pooling(torch.mul(relu,self.alpha) + F.relu(self.bn1(x))).flatten(start_dim=1)
+        relu = F.relu(conv)
+        act = self.pooling(relu).flatten(start_dim=1)
         result = self.fc6(act)
         return result
 
